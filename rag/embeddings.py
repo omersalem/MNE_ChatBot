@@ -20,7 +20,7 @@ class EmbeddingEngine:
             return
         logger.info(f"Loading embedding model: {Config.EMBEDDING_MODEL}")
         self.model = SentenceTransformer(Config.EMBEDDING_MODEL)
-        self._dimension = self.model.get_embedding_dimension()
+        self._dimension = self.model.get_sentence_embedding_dimension()
         logger.info(f"Embedding model loaded. Dimension: {self._dimension}")
         self._initialized = True
 
