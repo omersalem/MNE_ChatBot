@@ -43,6 +43,7 @@ def upload_file():
         return jsonify({'error': f'File type not allowed. Allowed: {Config.ALLOWED_EXTENSIONS}'}), 400
 
     filename = build_safe_filename(file.filename)
+    Config.COMPANY_DOCS_DIR.mkdir(exist_ok=True)
     file_path = Config.COMPANY_DOCS_DIR / filename
 
     content = file.read()
