@@ -1,0 +1,14 @@
+flask
+python-dotenv
+watchdog
+openai
+anthropic
+faiss-cpu
+sentence-transformers
+pypdf
+python-docx
+markdown
+numpy
+gunicorn
+flask-limiter
+flask-wtf

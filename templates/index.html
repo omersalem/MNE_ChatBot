@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Enterprise RAG Assistant{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <div class="chat-header">
+        <h1>Enterprise Knowledge Assistant</h1>
+        <div class="provider-selector">
+            <label for="provider-select">Provider:</label>
+            <select id="provider-select">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="opencode">OpenCode</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="suggested-questions" id="suggested-questions">
+        <h3>Suggested Questions</h3>
+        <div class="questions-grid" id="questions-grid">
+        </div>
+    </div>
+    
+    <div class="messages" id="messages">
+    </div>
+    
+    <div class="input-area">
+        <form id="chat-form">
+            <textarea id="message-input" placeholder="Ask a question about your documents..." rows="1"></textarea>
+            <button type="submit" id="send-btn">
+                <span id="send-text">Send</span>
+                <span id="send-spinner" class="spinner" style="display:none;"></span>
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CSRF_TOKEN = "{{ csrf_token() }}";
+</script>
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+{% endblock %}

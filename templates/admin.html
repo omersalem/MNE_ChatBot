@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - RAG Assistant{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <h1>Admin Dashboard</h1>
+    
+    <div class="admin-grid">
+        <div class="admin-card">
+            <h2>Vector Store Stats</h2>
+            <div class="stats-grid">
+                <div class="stat">
+                    <span class="stat-value" id="total-chunks">{{ stats.total_chunks }}</span>
+                    <span class="stat-label">Total Chunks</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value" id="total-docs">{{ stats.unique_documents }}</span>
+                    <span class="stat-label">Documents</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="admin-card">
+            <h2>Provider Health</h2>
+            <div id="health-status">
+                {% for name, status in health.items() %}
+                <div class="health-item">
+                    <span class="health-name">{{ name }}</span>
+                    <span class="health-badge {{ status.status }}">{{ status.status }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="admin-card">
+        <h2>Actions</h2>
+        <div class="actions">
+            <button id="reindex-all-btn" class="btn btn-primary">Reindex All Documents</button>
+            <button id="refresh-questions-btn" class="btn btn-secondary">Refresh Suggested Questions</button>
+        </div>
+    </div>
+    
+    <div class="admin-card">
+        <h2>Documents</h2>
+        <div class="upload-area">
+            <form id="upload-form">
+                <input type="file" id="file-input" accept=".pdf,.docx,.txt,.md">
+                <button type="submit" class="btn btn-primary">Upload</button>
+            </form>
+        </div>
+        <table class="doc-table">
+            <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Type</th>
+                    <th>Chunks</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="doc-list">
+                {% for doc in documents %}
+                <tr data-filename="{{ doc.filename }}">
+                    <td>{{ doc.filename }}</td>
+                    <td>{{ doc.document_type }}</td>
+                    <td>{{ doc.chunk_count }}</td>
+                    <td>
+                        <button class="btn btn-small btn-reindex" onclick="reindexDoc('{{ doc.filename }}')">Reindex</button>
+                        <button class="btn btn-small btn-delete" onclick="deleteDoc('{{ doc.filename }}')">Delete</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CSRF_TOKEN = "{{ csrf_token() }}";
+</script>
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}
