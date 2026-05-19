@@ -16,9 +16,10 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          host_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICDRzXnTAh/nQkop5VcuPAlSVYpoOIzxWkXVE4iaHroq
           script: |
             cd MNE_ChatBot
             git pull origin main
             venv/bin/pip install -r requirements.txt
             cd client && npm install && npm run build && cd ..
-            sudo systemctl restart rag-chatbot
+            echo 'fi@!2121@' | sudo -S systemctl restart rag-chatbot
