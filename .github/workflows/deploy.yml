@@ -6,20 +6,19 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, mne-chatbot]
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          host_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICDRzXnTAh/nQkop5VcuPAlSVYpoOIzxWkXVE4iaHroq
-          script: |
-            cd MNE_ChatBot
-            git pull origin main
-            venv/bin/pip install -r requirements.txt
-            cd client && npm install && npm run build && cd ..
-            echo 'fi@!2121@' | sudo -S systemctl restart rag-chatbot
+      - name: Deploy locally on self-hosted runner
+        run: |
+          set -e
+          cd "$HOME/MNE_ChatBot"
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          venv/bin/pip install -r requirements.txt
+          cd client
+          npm install --no-audit --no-fund
+          npm run build
+          cd ..
+          sudo systemctl restart rag-chatbot
+          systemctl is-active rag-chatbot
