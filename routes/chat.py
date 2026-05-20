@@ -170,6 +170,29 @@ def _trim_definition_suffix(suffix_text):
     return trimmed
 
 
+def _build_loose_arabic_pattern(term):
+    char_map = {
+        'ا': '[اأإآ]',
+        'أ': '[اأإآ]',
+        'إ': '[اأإآ]',
+        'آ': '[اأإآ]',
+        'ة': '[هة]',
+        'ه': '[هة]',
+        'ى': '[ىي]',
+        'ي': '[ىي]',
+        'ؤ': '[ؤو]',
+        'و': '[ؤو]',
+        'ئ': '[ئي]',
+    }
+    pattern_parts = []
+    for char in (term or '').strip():
+        if char.isspace():
+            pattern_parts.append(r'\s+')
+        else:
+            pattern_parts.append(char_map.get(char, re.escape(char)))
+    return ''.join(pattern_parts)
+
+
 def _extract_definition_from_text(term, text, response_lang):
     normalized_term = normalize_lookup_text(term)
     if not normalized_term or not text:
@@ -178,20 +201,27 @@ def _extract_definition_from_text(term, text, response_lang):
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     best_answer = ''
     best_priority = -1
+    loose_term_pattern = _build_loose_arabic_pattern(term)
+    exact_label_pattern = rf"{loose_term_pattern}\s*:"
 
     for line in lines:
         normalized_line = normalize_lookup_text(line)
         if normalized_term not in normalized_line:
             continue
 
-        exact_label = f"{term}:"
-        idx = line.find(exact_label)
-        match_len = len(exact_label)
-        priority = 3
-        if idx == -1:
-            idx = line.find(term)
-            match_len = len(term)
+        exact_label_match = re.search(exact_label_pattern, line)
+        if exact_label_match:
+            idx = exact_label_match.start()
+            match_len = exact_label_match.end() - exact_label_match.start()
+            priority = 3
+        else:
+            term_match = re.search(loose_term_pattern, line)
+            if not term_match:
+                continue
+            idx = term_match.start()
+            match_len = term_match.end() - term_match.start()
             priority = 1
+
         if idx == -1:
             continue
 

@@ -59,6 +59,16 @@ class TestChatHelpers(unittest.TestCase):
         self.assertIn("المنصة الإلكترونية أو التطبيق", answer)
         self.assertIn("وبيع المنتج أو الخدمة", answer)
 
+    def test_extract_definition_answer_accepts_spelling_variant_without_hamza(self):
+        context = (
+            "Reference excerpt 1:\n"
+            "المنصة الإلكترونية أو التطبيق الذي يتيح للمزود الإلكتروني تسويق وترويج المتجر الإلكتروني: "
+            "وبيع المنتج أو الخدمة أو الإعلان عنهما أو تبادل البيانات الخاصة بهما.\n"
+        )
+        answer = extract_definition_answer("تعريف المتجر الالكتروني", context, "ar")
+        self.assertIn("تعريف المتجر الالكتروني هو:", answer)
+        self.assertIn("المنصة الإلكترونية أو التطبيق", answer)
+
 
 if __name__ == '__main__':
     unittest.main()
