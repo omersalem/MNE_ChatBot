@@ -170,17 +170,14 @@ def _trim_definition_suffix(suffix_text):
     return trimmed
 
 
-def extract_definition_answer(message, context, response_lang):
-    term = extract_definition_term(message)
-    if not term:
-        return ''
-
+def _extract_definition_from_text(term, text, response_lang):
     normalized_term = normalize_lookup_text(term)
-    if not normalized_term:
+    if not normalized_term or not text:
         return ''
 
-    lines = [line.strip() for line in (context or '').splitlines() if line.strip()]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
     best_answer = ''
+    best_priority = -1
 
     for line in lines:
         normalized_line = normalize_lookup_text(line)
@@ -190,9 +187,11 @@ def extract_definition_answer(message, context, response_lang):
         exact_label = f"{term}:"
         idx = line.find(exact_label)
         match_len = len(exact_label)
+        priority = 3
         if idx == -1:
             idx = line.find(term)
             match_len = len(term)
+            priority = 1
         if idx == -1:
             continue
 
@@ -205,8 +204,12 @@ def extract_definition_answer(message, context, response_lang):
             candidate = prefix or suffix
 
         candidate = re.sub(r'\s+', ' ', candidate).strip(' :')
-        if len(candidate) > len(best_answer):
+        if not candidate:
+            continue
+
+        if priority > best_priority or (priority == best_priority and len(candidate) > len(best_answer)):
             best_answer = candidate
+            best_priority = priority
 
     if not best_answer:
         return ''
@@ -214,6 +217,61 @@ def extract_definition_answer(message, context, response_lang):
     if response_lang == 'ar':
         return f"تعريف {term} هو: {best_answer}."
     return f"The definition of {term} is: {best_answer}."
+
+
+def _definition_text_score(term, text):
+    normalized_term = normalize_lookup_text(term)
+    normalized_exact_label = normalize_lookup_text(f"{term}:")
+    normalized_text = normalize_lookup_text(text)
+    score = 0
+
+    if normalized_exact_label and normalized_exact_label in normalized_text:
+        score += 5
+    if normalized_term and normalized_term in normalized_text:
+        score += 2
+    if 'تعاريف' in normalized_text or 'التعريفات' in normalized_text:
+        score += 1
+
+    return score
+
+
+def extract_definition_answer(message, context, response_lang, allowed_sources=None):
+    term = extract_definition_term(message)
+    if not term:
+        return ''
+
+    allowed = set(allowed_sources or [])
+    best_answer = ''
+    best_score = -1
+
+    for meta in retrieval.vector_store.metadata:
+        source_file = meta.get('source_file')
+        if allowed and source_file not in allowed:
+            continue
+
+        text = meta.get('text', '')
+        score = _definition_text_score(term, text)
+        if score <= 0:
+            continue
+
+        answer = _extract_definition_from_text(term, text, response_lang)
+        if not answer:
+            continue
+
+        if score > best_score or (score == best_score and len(answer) > len(best_answer)):
+            best_score = score
+            best_answer = answer
+
+    context_answer = _extract_definition_from_text(term, context or '', response_lang)
+    context_score = _definition_text_score(term, context or '')
+    if context_answer and (
+        context_score > best_score
+        or (context_score == best_score and len(context_answer) > len(best_answer))
+    ):
+        best_answer = context_answer
+        best_score = context_score
+
+    return best_answer
 
 
 def ensure_sources_indexed(source_files):
@@ -288,7 +346,12 @@ def chat():
                 }
             )
 
-        direct_definition_answer = extract_definition_answer(message, context, response_lang)
+        direct_definition_answer = extract_definition_answer(
+            message,
+            context,
+            response_lang,
+            allowed_sources=allowed_sources,
+        )
         if direct_definition_answer:
             def generate_definition_answer():
                 yield f"data: {json.dumps({'content': direct_definition_answer})}\n\n"
