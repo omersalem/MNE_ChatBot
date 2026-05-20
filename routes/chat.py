@@ -21,6 +21,11 @@ FALLBACK_ANSWER_EN = "We do not currently have enough verified information to an
 FALLBACK_ANSWER_AR = "\u0644\u0627 \u062a\u062a\u0648\u0641\u0631 \u0644\u062f\u064a\u0646\u0627 \u062d\u0627\u0644\u064a\u0627\u064b \u0645\u0639\u0644\u0648\u0645\u0627\u062a \u0645\u0648\u062b\u0648\u0642\u0629 \u0643\u0627\u0641\u064a\u0629 \u0644\u0644\u0625\u062c\u0627\u0628\u0629 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u0633\u0624\u0627\u0644."
 ARABIC_CHAR_PATTERN = re.compile(r'[\u0600-\u06FF]')
 LATIN_CHAR_PATTERN = re.compile(r'[A-Za-z]')
+ARABIC_DIACRITICS_PATTERN = re.compile(r'[\u064b-\u065f\u0670]')
+TERM_PREFIX_PATTERN = re.compile(
+    r'^\s*(?:ما\s+(?:هو|هي)\s+|ما\s+تعريف\s+|ما\s+معنى\s+|تعريف\s+|عرف\s+|اذكر\s+تعريف\s+|ماذا\s+يعني\s+)?',
+    re.IGNORECASE,
+)
 
 SYSTEM_PROMPT = """You are a professional enterprise assistant.
 
@@ -123,6 +128,94 @@ def finalize_answer(answer, fallback_sentence, sources):
     return cleaned or answer or fallback_sentence
 
 
+def normalize_lookup_text(text):
+    value = (text or '').strip()
+    value = value.replace('\u0640', '')
+    value = ARABIC_DIACRITICS_PATTERN.sub('', value)
+    value = value.replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
+    value = value.replace('ى', 'ي').replace('ة', 'ه').replace('ؤ', 'و').replace('ئ', 'ي')
+    value = re.sub(r'\s+', ' ', value)
+    return value.strip().lower()
+
+
+def extract_definition_term(message):
+    cleaned = (message or '').strip()
+    cleaned = cleaned.rstrip('؟? .!،,:؛')
+    cleaned = TERM_PREFIX_PATTERN.sub('', cleaned).strip()
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    return cleaned
+
+
+def _trim_definition_prefix(prefix_text):
+    trimmed = prefix_text.strip()
+    for separator in ('\n', '.', '؟', '!', '؛'):
+        idx = trimmed.rfind(separator)
+        if idx != -1 and idx < len(trimmed) - 1:
+            trimmed = trimmed[idx + 1:].strip()
+            break
+    return trimmed
+
+
+def _trim_definition_suffix(suffix_text):
+    trimmed = suffix_text.strip()
+    cut_positions = [pos for pos in (
+        trimmed.find('\n'),
+        trimmed.find('.'),
+        trimmed.find('؟'),
+        trimmed.find('!'),
+        trimmed.find('؛'),
+    ) if pos != -1]
+    if cut_positions:
+        trimmed = trimmed[:min(cut_positions)].strip()
+    return trimmed
+
+
+def extract_definition_answer(message, context, response_lang):
+    term = extract_definition_term(message)
+    if not term:
+        return ''
+
+    normalized_term = normalize_lookup_text(term)
+    if not normalized_term:
+        return ''
+
+    lines = [line.strip() for line in (context or '').splitlines() if line.strip()]
+    best_answer = ''
+
+    for line in lines:
+        normalized_line = normalize_lookup_text(line)
+        if normalized_term not in normalized_line:
+            continue
+
+        exact_label = f"{term}:"
+        idx = line.find(exact_label)
+        match_len = len(exact_label)
+        if idx == -1:
+            idx = line.find(term)
+            match_len = len(term)
+        if idx == -1:
+            continue
+
+        prefix = _trim_definition_prefix(line[max(0, idx - 280):idx])
+        suffix = _trim_definition_suffix(line[idx + match_len: idx + match_len + 280])
+
+        if prefix and suffix:
+            candidate = f"{prefix} {suffix}".strip()
+        else:
+            candidate = prefix or suffix
+
+        candidate = re.sub(r'\s+', ' ', candidate).strip(' :')
+        if len(candidate) > len(best_answer):
+            best_answer = candidate
+
+    if not best_answer:
+        return ''
+
+    if response_lang == 'ar':
+        return f"تعريف {term} هو: {best_answer}."
+    return f"The definition of {term} is: {best_answer}."
+
+
 def ensure_sources_indexed(source_files):
     if not source_files:
         return
@@ -187,6 +280,23 @@ def chat():
 
             return Response(
                 stream_with_context(generate_fallback()),
+                mimetype='text/event-stream',
+                headers={
+                    'Cache-Control': 'no-cache',
+                    'X-Accel-Buffering': 'no',
+                    'Connection': 'keep-alive',
+                }
+            )
+
+        direct_definition_answer = extract_definition_answer(message, context, response_lang)
+        if direct_definition_answer:
+            def generate_definition_answer():
+                yield f"data: {json.dumps({'content': direct_definition_answer})}\n\n"
+                yield f"data: {json.dumps({'sources': sources})}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return Response(
+                stream_with_context(generate_definition_answer()),
                 mimetype='text/event-stream',
                 headers={
                     'Cache-Control': 'no-cache',

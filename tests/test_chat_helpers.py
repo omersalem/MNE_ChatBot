@@ -7,6 +7,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from routes.chat import (
     FALLBACK_ANSWER_AR,
     answer_uses_fallback,
+    extract_definition_answer,
+    extract_definition_term,
     finalize_answer,
     should_retry_with_rescue,
     strip_fallback_from_answer,
@@ -39,6 +41,23 @@ class TestChatHelpers(unittest.TestCase):
         sources = [{'filename': '2025.pdf', 'chunk_id': '1', 'score': 0.9}]
         answer = "جواب مدعوم.\n" + FALLBACK_ANSWER_AR
         self.assertEqual(finalize_answer(answer, FALLBACK_ANSWER_AR, sources), "جواب مدعوم.")
+
+    def test_extract_definition_term_from_arabic_question(self):
+        self.assertEqual(
+            extract_definition_term("ما تعريف المتجر الإلكتروني؟"),
+            "المتجر الإلكتروني",
+        )
+
+    def test_extract_definition_answer_handles_reversed_pdf_label_pattern(self):
+        context = (
+            "Reference excerpt 1:\n"
+            "المنصة الإلكترونية أو التطبيق الذي يتيح للمزود الإلكتروني تسويق وترويج المتجر الإلكتروني: "
+            "وبيع المنتج أو الخدمة أو الإعلان عنهما أو تبادل البيانات الخاصة بهما.\n"
+        )
+        answer = extract_definition_answer("ما تعريف المتجر الإلكتروني؟", context, "ar")
+        self.assertIn("تعريف المتجر الإلكتروني هو:", answer)
+        self.assertIn("المنصة الإلكترونية أو التطبيق", answer)
+        self.assertIn("وبيع المنتج أو الخدمة", answer)
 
 
 if __name__ == '__main__':
