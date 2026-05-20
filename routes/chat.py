@@ -34,6 +34,7 @@ Rules:
 - Connect related excerpts when the answer spans more than one reference excerpt, and present the combined result as one coherent answer.
 - If the user asks indirectly about goals, benefits, starting, creating, registering, requirements, types, or procedures, answer with the closest supported information from the reference material instead of refusing.
 - Prefer the most specific supported section title or clause when it clearly matches the user's intent, even if the wording is not identical.
+- If reference excerpts are provided, you MUST answer from them and MUST NOT use the fallback sentence.
 - If the reference material is insufficient, respond with this exact sentence and nothing else:
   {fallback_sentence}
 - Keep the answer professional, clear, and sufficiently complete.
@@ -41,6 +42,22 @@ Rules:
 - Use short bullet points or numbering when they improve clarity.
 - Include exact names, versions, numbers, and steps only when they are supported by the reference material.
 - When the reference material lists goals, benefits, requirements, or steps, include the full supported list instead of a partial answer.
+
+Reference material:
+{context}"""
+
+RESCUE_PROMPT_TEMPLATE = """You are a professional enterprise assistant.
+
+Answer ONLY from the reference material below.
+
+Rules:
+- Answer in {language_name} only.
+- Relevant reference excerpts are already available, so DO NOT return the fallback sentence.
+- Give the closest supported answer even if the user's wording is indirect, shorter, broader, or phrased differently.
+- For steps, requirements, conditions, obligations, goals, or definitions, summarize the supported points clearly and directly.
+- If the material supports only part of the request, answer with that supported part without refusing.
+- Do not mention documents, files, sources, or the knowledge base.
+- Start with a direct answer.
 
 Reference material:
 {context}"""
@@ -62,6 +79,48 @@ def language_instruction_for(lang):
 
 def fallback_for(lang):
     return FALLBACK_ANSWER_AR if lang == 'ar' else FALLBACK_ANSWER_EN
+
+
+def language_name_for(lang):
+    return 'Arabic' if lang == 'ar' else 'English'
+
+
+def normalize_answer_text(text):
+    return re.sub(r'\s+', ' ', (text or '')).strip()
+
+
+def strip_fallback_from_answer(answer, fallback_sentence):
+    answer = (answer or '').strip()
+    fallback_sentence = (fallback_sentence or '').strip()
+    if not answer or not fallback_sentence:
+        return answer
+
+    cleaned = answer.replace(fallback_sentence, '').strip()
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+    return cleaned
+
+
+def answer_uses_fallback(answer, fallback_sentence):
+    normalized_answer = normalize_answer_text(answer)
+    normalized_fallback = normalize_answer_text(fallback_sentence)
+    if not normalized_answer or not normalized_fallback:
+        return False
+    return normalized_fallback in normalized_answer
+
+
+def should_retry_with_rescue(answer, fallback_sentence, sources):
+    if not sources:
+        return False
+    return answer_uses_fallback(answer, fallback_sentence)
+
+
+def finalize_answer(answer, fallback_sentence, sources):
+    answer = (answer or '').strip()
+    if not sources:
+        return answer or fallback_sentence
+
+    cleaned = strip_fallback_from_answer(answer, fallback_sentence)
+    return cleaned or answer or fallback_sentence
 
 
 def ensure_sources_indexed(source_files):
@@ -152,13 +211,35 @@ def chat():
         def generate():
             start_time = time.time()
             try:
+                chunks = []
                 for chunk in provider.stream_response(
                     messages,
                     temperature=Config.ANSWER_TEMPERATURE,
                     max_tokens=Config.ANSWER_MAX_TOKENS,
                 ):
-                    data_line = json.dumps({'content': chunk})
-                    yield f"data: {data_line}\n\n"
+                    chunks.append(chunk)
+
+                answer_text = ''.join(chunks).strip()
+                answer_text = finalize_answer(answer_text, fallback_sentence, sources)
+
+                if should_retry_with_rescue(answer_text, fallback_sentence, sources):
+                    rescue_prompt = RESCUE_PROMPT_TEMPLATE.format(
+                        context=context,
+                        language_name=language_name_for(response_lang),
+                    )
+                    rescue_messages = [
+                        {'role': 'system', 'content': rescue_prompt},
+                        {'role': 'user', 'content': message},
+                    ]
+                    rescue_answer = provider.generate_response(
+                        rescue_messages,
+                        temperature=0,
+                        max_tokens=Config.ANSWER_MAX_TOKENS,
+                    )
+                    answer_text = finalize_answer(rescue_answer, fallback_sentence, sources)
+
+                data_line = json.dumps({'content': answer_text})
+                yield f"data: {data_line}\n\n"
 
                 sources_line = json.dumps({'sources': sources})
                 yield f"data: {sources_line}\n\n"
