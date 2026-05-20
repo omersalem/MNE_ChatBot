@@ -30,14 +30,17 @@ Rules:
 - Do not mention documents, uploads, files, sources, or the knowledge base.
 - Do not say that the answer was or was not found in a document.
 - Language rule: {language_instruction}
-- Treat indirect, paraphrased, and category-style questions as valid when the reference material contains equivalent concepts, legal forms, steps, or requirements.
-- If the user asks about types, categories, requirements, or procedures indirectly, answer with the closest supported information from the reference material instead of refusing.
+- Treat indirect, paraphrased, synonym-based, and category-style questions as valid when the reference material contains equivalent concepts, legal forms, steps, requirements, benefits, goals, or obligations.
+- Connect related excerpts when the answer spans more than one reference excerpt, and present the combined result as one coherent answer.
+- If the user asks indirectly about goals, benefits, starting, creating, registering, requirements, types, or procedures, answer with the closest supported information from the reference material instead of refusing.
+- Prefer the most specific supported section title or clause when it clearly matches the user's intent, even if the wording is not identical.
 - If the reference material is insufficient, respond with this exact sentence and nothing else:
   {fallback_sentence}
-- Keep the answer concise, professional, and well organized.
+- Keep the answer professional, clear, and sufficiently complete.
 - Start with a direct answer.
-- Use short bullet points only when they improve clarity.
+- Use short bullet points or numbering when they improve clarity.
 - Include exact names, versions, numbers, and steps only when they are supported by the reference material.
+- When the reference material lists goals, benefits, requirements, or steps, include the full supported list instead of a partial answer.
 
 Reference material:
 {context}"""
@@ -79,6 +82,22 @@ def ensure_sources_indexed(source_files):
         indexed_sources.add(source_file)
 
 
+def ensure_index_ready(source_files=None):
+    source_files = source_files or []
+
+    if retrieval.vector_store.requires_reindex or retrieval.vector_store.is_empty():
+        logger.info("Vector store is empty or requires reindex; indexing available documents")
+        if source_files:
+            ensure_sources_indexed(source_files)
+        else:
+            processor.process_all()
+        retrieval.vector_store.requires_reindex = False
+        return
+
+    if source_files:
+        ensure_sources_indexed(source_files)
+
+
 @chat_bp.route('/api/chat', methods=['POST'])
 def chat():
     data = request.get_json() or {}
@@ -98,7 +117,7 @@ def chat():
             selected_group = group_manager.get_group(group_id)
             if selected_group:
                 allowed_sources = selected_group.get('documents', [])
-                ensure_sources_indexed(allowed_sources)
+        ensure_index_ready(allowed_sources)
 
         context, sources = retrieval.retrieve(message, allowed_sources=allowed_sources)
         if not context:

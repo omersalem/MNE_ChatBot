@@ -26,23 +26,45 @@ class VectorStore:
         self.metadata = []
         self.metadata_file = Config.VECTOR_DB_DIR / 'metadata.json'
         self.index_file = Config.VECTOR_DB_DIR / 'faiss.index'
+        self.manifest_file = Config.VECTOR_DB_DIR / 'manifest.json'
         self.embedding_engine = EmbeddingEngine()
+        self.requires_reindex = False
         self._load()
         self._initialized = True
 
     def _load(self):
         Config.VECTOR_DB_DIR.mkdir(exist_ok=True)
+        manifest = self._load_manifest()
         if self.index_file.exists() and self.metadata_file.exists():
+            if manifest is None:
+                self.index = faiss.IndexFlatIP(self.embedding_engine.dimension)
+                self.metadata = []
+                self.requires_reindex = True
+                self._save()
+                logger.warning("Vector store reset because no manifest was found for the existing index")
+                return
+
+            if not self._manifest_matches(manifest):
+                self.index = faiss.IndexFlatIP(self.embedding_engine.dimension)
+                self.metadata = []
+                self.requires_reindex = True
+                self._save()
+                logger.warning("Vector store reset because embedding configuration changed")
+                return
+
             self.index = faiss.read_index(str(self.index_file))
-            with open(self.metadata_file, 'r') as f:
+            with open(self.metadata_file, 'r', encoding='utf-8') as f:
                 self.metadata = json.load(f)
             logger.info(f"Loaded vector store: {len(self.metadata)} chunks")
         else:
             self.index = faiss.IndexFlatIP(self.embedding_engine.dimension)
             self.metadata = []
+            self._save()
             logger.info("Created new vector store")
 
     def add_chunks(self, chunks):
+        for chunk in chunks:
+            chunk['embedding_model'] = Config.EMBEDDING_MODEL
         texts = [c['text'] for c in chunks]
         embeddings = self.embedding_engine.embed(texts)
         
@@ -111,8 +133,10 @@ class VectorStore:
 
     def _save(self):
         faiss.write_index(self.index, str(self.index_file))
-        with open(self.metadata_file, 'w') as f:
-            json.dump(self.metadata, f, indent=2)
+        with open(self.metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(self.metadata, f, indent=2, ensure_ascii=False)
+        with open(self.manifest_file, 'w', encoding='utf-8') as f:
+            json.dump(self._current_manifest(), f, indent=2, ensure_ascii=False)
 
     def get_stats(self):
         return {
@@ -135,3 +159,28 @@ class VectorStore:
 
     def get_indexed_sources(self):
         return {m.get('source_file') for m in self.metadata if m.get('source_file')}
+
+    def is_empty(self):
+        return self.index is None or self.index.ntotal == 0
+
+    def _current_manifest(self):
+        return {
+            'embedding_model': Config.EMBEDDING_MODEL,
+            'embedding_dimension': self.embedding_engine.dimension,
+        }
+
+    def _load_manifest(self):
+        if not self.manifest_file.exists():
+            return None
+        try:
+            with open(self.manifest_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as exc:
+            logger.warning("Failed to load vector store manifest: %s", exc)
+            return None
+
+    def _manifest_matches(self, manifest):
+        return (
+            manifest.get('embedding_model') == Config.EMBEDDING_MODEL
+            and manifest.get('embedding_dimension') == self.embedding_engine.dimension
+        )
